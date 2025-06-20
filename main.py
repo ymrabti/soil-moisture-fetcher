@@ -256,7 +256,7 @@ else:
 if exported_data:
     df = pd.DataFrame(exported_data)
     os.makedirs("exports", exist_ok=True)
-    csv_path = "exports/soil_moisture_batch_export.csv"
+    csv_path = f"exports/soil_moisture_{START_DATE}/{END_DATE}.csv"
     df.to_csv(csv_path, index=False)
     print(f"💾 Combined CSV saved: {csv_path}")
 
@@ -265,3 +265,5 @@ if exported_data:
     send_email_notification("batch", csv_path)
 else:
     print("⚠️ No data to export or notify.")
+    # 2. Create a simple DataFrame
+
