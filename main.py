@@ -1,14 +1,39 @@
+"""
+Main entry point for the Soil Moisture Fetcher.
+
+This script automates the process of fetching daily NASA SMAP soil moisture data
+for a specified Zone of Interest (ZOI) using Google Earth Engine (GEE). It computes
+the mean soil moisture for the ZOI, exports clipped GeoTIFF images to Google Drive,
+saves daily statistics as CSV files, and sends notifications via webhook and/or email.
+
+Steps performed:
+1. Loads environment variables and credentials.
+2. Initializes the Google Earth Engine API.
+3. Defines the ZOI polygon.
+4. Fetches SMAP soil moisture images for the specified date range.
+5. For each image:
+   - Exports the clipped GeoTIFF to Google Drive.
+   - Computes and saves the mean soil moisture as a CSV file.
+   - Sends a notification with the CSV report via webhook and/or email.
+
+Configuration is managed via a `.env` file.
+
+Author: Younes Mrabti
+"""
+
 import os
-import ee
-import requests
 import smtplib
-import pandas as pd
+
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.utils import formatdate
 from email.mime.base import MIMEBase
 from email import encoders
+import ee
+import requests
+import pandas as pd
 from dotenv import load_dotenv
+
 load_dotenv()
 
 CREDENTIALS_JSON = os.getenv("EARTHENGINE_CREDENTIALS")
@@ -19,13 +44,20 @@ ee.Initialize()
 zoi = ee.Geometry.Polygon(
     [
         [
-            [-6.913337630230819, 33.96372761379892],
-            [-6.837643297965064, 34.041713419311066],
-            [-6.715267025694914, 34.17661240168678],
-            [-6.519459846919034, 34.12961911179728],
-            [-6.595909944361779, 33.90255010085002],
-            [-6.910131849580654, 33.82562201398678],
-            [-6.913337630230819, 33.96372761379892],
+            [-2.3481773965156094, 35.10994069768071],
+            [-2.3456620930114127, 35.1057921166766],
+            [-2.3395766814241767, 35.10280500753562],
+            [-2.331259952255124, 35.10466366608924],
+            [-2.327568135891795, 35.11004026111742],
+            [-2.326026498289366, 35.1151510164202],
+            [-2.3265944700380317, 35.120560103022925],
+            [-2.337020808557469, 35.12357974361997],
+            [-2.3424976789862626, 35.12304882591104],
+            [-2.3440393165879527, 35.11992961448671],
+            [-2.344485580152309, 35.11820404187584],
+            [-2.343674191940522, 35.115781541852286],
+            [-2.3447289966161122, 35.113292596948455],
+            [-2.3481773965156094, 35.10994069768071],
         ]
     ]
 )
@@ -38,6 +70,7 @@ END_DATE = today.strftime("%Y-%m-%d")
 
 print(f"📅 Fetching data from {START_DATE} to {END_DATE}")
 
+exported_data = []
 
 # Load SMAP dataset
 smap = (
@@ -46,15 +79,33 @@ smap = (
     .select("sm_surface")
 )
 
-"""
-Function
-"""
-def export_and_notify(image):
-    date_str = image.date().format("YYYY-MM-dd").getInfo()
+
+def export_and_notify(img):
+    """
+    Exports a given Earth Engine image to Google Drive,
+    computes the mean soil moisture for a specified zone of interest (ZOI),
+    saves the result as a local CSV file, and sends a webhook notification.
+    Args:
+        img (ee.Image): The Earth Engine image to export and analyze.
+    Side Effects:
+        - Starts an Earth Engine export task to Google Drive for the clipped image.
+        - Prints status messages to the console.
+        - Computes the mean soil moisture value ("sm_surface") for
+        the ZOI and saves it as a CSV file locally.
+        - Sends a webhook notification with the export date.
+    Environment Variables:
+        GDRIVE_FOLDER (str, optional): The Google Drive
+        folder to export the image to. Defaults to "GEE_Soil_Moisture".
+    Notes:
+        - Requires the global variable `zoi` (zone of interest) to be defined.
+        - Assumes the presence of the `send_webhook_notification` function.
+        - Optionally, an email notification can be sent by uncommenting the relevant line.
+    """
+    date_str = img.date().format("YYYY-MM-dd").getInfo()
     filename = f"smap_soil_moisture_{date_str}"
 
     task = ee.batch.Export.image.toDrive(
-        image=image.clip(zoi),
+        image=img.clip(zoi),
         description=filename,
         folder=os.getenv("GDRIVE_FOLDER", "GEE_Soil_Moisture"),
         fileNamePrefix=filename,
@@ -67,24 +118,36 @@ def export_and_notify(image):
     print(f"🛰️ Export started for {date_str}")
 
     # 1. Extract soil moisture mean for your ZOI on this image
-    mean_dict = image.reduceRegion(
+    mean_dict = img.reduceRegion(
         reducer=ee.Reducer.mean(), geometry=zoi, scale=10000, maxPixels=1e9
     ).getInfo()
 
-    # 2. Create a simple DataFrame
-    df = pd.DataFrame(
-        [{"date": date_str, "soil_moisture_mean": mean_dict.get("sm_surface", None)}]
+    exported_data.append(
+        {"date": date_str, "soil_moisture_mean": mean_dict.get("sm_surface", None)}
     )
-
-    # 3. Save CSV file locally
-    csv_path = f"soil_moisture_{date_str}.csv"
-    df.to_csv(csv_path, index=False)
-    print(f"💾 CSV saved: {csv_path}")
-    send_webhook_notification(date_str)
-    # send_email_notification(date_str, csv_path)
 
 
 def send_webhook_notification(date_str):
+    """
+    Sends a webhook notification to a specified URL with information about new data availability.
+
+    Args:
+        date_str (str): The date string representing when new data is available.
+
+    Environment Variables:
+        WEBHOOK_URL: The URL to which the webhook notification will be sent.
+
+    Behavior:
+        - If the WEBHOOK_URL environment variable is not set,
+        the function returns without sending a notification.
+        - Sends a POST request with a JSON payload containing the status and date.
+        - Prints the status code of the response if successful.
+        - Prints an error message if the request fails.
+
+    Exceptions:
+        Handles requests.RequestException and prints an
+        error message if the webhook fails to send.
+    """
     url = os.getenv("WEBHOOK_URL")
     if not url:
         return
@@ -92,11 +155,29 @@ def send_webhook_notification(date_str):
         payload = {"status": "new_data_available", "date": date_str}
         r = requests.post(url, json=payload, timeout=2000)
         print(f"📡 Webhook sent: {r.status_code}")
-    except Exception as e:
+    except requests.RequestException as e:
         print(f"❌ Webhook failed: {e}")
 
 
-def send_email_notification(date_str, csv_path=None):
+def send_email_notification(date_str, csv_path):
+    """
+    Sends an email notification with a SMAP soil moisture report for the specified date.
+    The email includes both plain text and HTML content,
+    and optionally attaches a CSV report if a file path is provided.
+    SMTP server configuration and email addresses are read from environment variables:
+        - SMTP_HOST: SMTP server hostname
+        - SMTP_PORT: SMTP server port (default: 587)
+        - SMTP_USER: SMTP username
+        - SMTP_PASS: SMTP password
+        - EMAIL_FROM: Sender email address
+        - EMAIL_TO: Recipient email address
+    Args:
+        date_str (str): The date string to include in the email subject and body.
+        csv_path (str, optional): Path to the CSV file to attach.
+        If None or file does not exist, no attachment is sent.
+    Raises:
+        smtplib.SMTPException: If sending the email fails.
+    """
     smtp_host = os.getenv("SMTP_HOST")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER")
@@ -148,7 +229,7 @@ def send_email_notification(date_str, csv_path=None):
             server.login(smtp_user, smtp_pass)
             server.send_message(msg)
             print("📧 Email with CSV report sent.")
-    except Exception as e:
+    except smtplib.SMTPException as e:
         print(f"❌ Email send failed: {e}")
 
 
@@ -162,6 +243,7 @@ else:
 # Run export
 images = smap.toList(smap.size())
 image_count = smap.size().getInfo()
+
 if image_count == 0:
     print("⚠️ No images found for the specified date range.")
 else:
@@ -169,5 +251,17 @@ else:
         try:
             image = ee.Image(images.get(i))
             export_and_notify(image)
-        except Exception as e:
+        except ee.EEException as e:
             print(f"❌ Failed to process image at index {i}: {e}")
+if exported_data:
+    df = pd.DataFrame(exported_data)
+    os.makedirs("exports", exist_ok=True)
+    csv_path = "exports/soil_moisture_batch_export.csv"
+    df.to_csv(csv_path, index=False)
+    print(f"💾 Combined CSV saved: {csv_path}")
+
+    # ✅ One-time notification
+    send_webhook_notification([d["date"] for d in exported_data])
+    send_email_notification("batch", csv_path)
+else:
+    print("⚠️ No data to export or notify.")
