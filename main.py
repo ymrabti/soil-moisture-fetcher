@@ -17,16 +17,24 @@ ee.Initialize()
 
 # Zone of Interest
 zoi = ee.Geometry.Polygon(
-    [[[-6.85, 33.97], [-6.85, 34.05], [-6.75, 34.05], [-6.75, 33.97], [-6.85, 33.97]]]
+    [
+        [
+            [-6.913337630230819, 33.96372761379892],
+            [-6.837643297965064, 34.041713419311066],
+            [-6.715267025694914, 34.17661240168678],
+            [-6.519459846919034, 34.12961911179728],
+            [-6.595909944361779, 33.90255010085002],
+            [-6.910131849580654, 33.82562201398678],
+            [-6.913337630230819, 33.96372761379892],
+        ]
+    ]
 )
 
 today = datetime.now(timezone.utc).date()
-yesterday = today - timedelta(days=4)
+yesterday = today - timedelta(days=5)
 
 START_DATE = yesterday.strftime("%Y-%m-%d")
 END_DATE = today.strftime("%Y-%m-%d")
-print("Start:", START_DATE)
-print("End:", END_DATE)
 
 print(f"📅 Fetching data from {START_DATE} to {END_DATE}")
 
@@ -35,14 +43,13 @@ print(f"📅 Fetching data from {START_DATE} to {END_DATE}")
 smap = (
     ee.ImageCollection("NASA/SMAP/SPL4SMGP/007")
     .filterDate(START_DATE, END_DATE)
-    .select("ssm")
+    .select("sm_surface")
 )
 
 """
 Function
 """
 def export_and_notify(image):
-    print(image)
     date_str = image.date().format("YYYY-MM-dd").getInfo()
     filename = f"smap_soil_moisture_{date_str}"
 
@@ -66,7 +73,7 @@ def export_and_notify(image):
 
     # 2. Create a simple DataFrame
     df = pd.DataFrame(
-        [{"date": date_str, "soil_moisture_mean": mean_dict.get("ssm", None)}]
+        [{"date": date_str, "soil_moisture_mean": mean_dict.get("sm_surface", None)}]
     )
 
     # 3. Save CSV file locally
@@ -74,7 +81,7 @@ def export_and_notify(image):
     df.to_csv(csv_path, index=False)
     print(f"💾 CSV saved: {csv_path}")
     send_webhook_notification(date_str)
-    send_email_notification(date_str, csv_path)
+    # send_email_notification(date_str, csv_path)
 
 
 def send_webhook_notification(date_str):
@@ -83,7 +90,7 @@ def send_webhook_notification(date_str):
         return
     try:
         payload = {"status": "new_data_available", "date": date_str}
-        r = requests.post(url, json=payload)
+        r = requests.post(url, json=payload, timeout=2000)
         print(f"📡 Webhook sent: {r.status_code}")
     except Exception as e:
         print(f"❌ Webhook failed: {e}")
@@ -91,7 +98,7 @@ def send_webhook_notification(date_str):
 
 def send_email_notification(date_str, csv_path=None):
     smtp_host = os.getenv("SMTP_HOST")
-    smtp_port = int(os.getenv("SMTP_PORT", 587))
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER")
     smtp_pass = os.getenv("SMTP_PASS")
     email_from = os.getenv("EMAIL_FROM")
