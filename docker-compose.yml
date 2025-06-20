@@ -1,0 +1,14 @@
+version: '3.9'
+
+services:
+    soil-moisture-fetcher:
+        build: .
+        container_name: soil-moisture-fetcher
+        env_file:
+            - .env
+        volumes:
+            # Adjust this to your OS and path:
+            # Windows: %USERPROFILE% or full path
+            # Linux/Mac: $HOME
+            - ${HOME}/.config/earthengine:/root/.config/earthengine
+        restart: 'no' # Optional: set to "always" or use cron on host

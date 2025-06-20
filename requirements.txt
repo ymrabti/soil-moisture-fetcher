@@ -1,0 +1,4 @@
+earthengine-api
+requests
+python-dotenv
+pandas
