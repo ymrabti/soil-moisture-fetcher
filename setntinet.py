@@ -29,6 +29,7 @@ from email.message import EmailMessage
 from email.utils import formatdate
 from email.mime.base import MIMEBase
 from email import encoders
+import geemap.foliumap as geemap
 import ee
 import requests
 import pandas as pd
@@ -255,6 +256,45 @@ df = pd.DataFrame(
 df["date"] = pd.to_datetime(df["date"])
 print(df)
 
+# 2️⃣ Generate a colored map of the median VV over your ZOI
+
+# Compute median image (reduce noise)
+vv_median = smap.median().clip(zoi)
+export_filename = f"Sentinel1_VV_{datetime.now().strftime('%Y%m%d_%H%M')}"
+task = ee.batch.Export.image.toDrive(
+    image=vv_median,
+    description=export_filename,
+    folder="GEE_Exports",  # Name of your Google Drive folder
+    fileNamePrefix=export_filename,
+    region=zoi,
+    scale=10,  # 10m native resolution
+    crs="EPSG:4326",
+    maxPixels=1e9,
+    fileFormat="GeoTIFF",
+)
+
+task.start()
+# Visualization parameters for VV (dB)
+vis_params = {
+    "min": -25,
+    "max": -5,
+    "palette": ["0000FF", "00FFFF", "00FF00", "FFFF00", "FF0000"],  # Blue to Red
+}
+
+# Create interactive map with geemap
+Map = geemap.Map(center=[34.01, -6.8], zoom=12)
+# Add VV median layer with color ramp
+Map.addLayer(vv_median, vis_params, "Sentinel-1 VV Median (dB)")
+# Add ZOI outline
+Map.addLayer(zoi, {"color": "white"}, "ZOI")
+# Add colorbar
+Map.add_colorbar(
+    vis_params={"min": -25, "max": 0, "palette": ["#000000", "#888888", "#FFFFFF"]},
+    label="VV (dB)",
+)
+# Display the map
+Map
+# cls && .venv\Scripts\python.exe setntinet.py
 
 dates = smap.aggregate_array("system:time_start").getInfo()
 if dates:
