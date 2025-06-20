@@ -63,7 +63,7 @@ zoi = ee.Geometry.Polygon(
 )
 
 today = datetime.now(timezone.utc).date()
-yesterday = today - timedelta(days=5)
+yesterday = today - timedelta(days=15)
 
 START_DATE = yesterday.strftime("%Y-%m-%d")
 END_DATE = today.strftime("%Y-%m-%d")
@@ -74,9 +74,13 @@ exported_data = []
 
 # Load SMAP dataset
 smap = (
-    ee.ImageCollection("NASA/SMAP/SPL4SMGP/007")
+    ee.ImageCollection("COPERNICUS/S1_GRD")
+    .filterBounds(zoi)
     .filterDate(START_DATE, END_DATE)
-    .select("sm_surface")
+    .filter(ee.Filter.eq("instrumentMode", "IW"))
+    .filter(ee.Filter.eq("orbitProperties_pass", "ASCENDING"))
+    .filter(ee.Filter.listContains("transmitterReceiverPolarisation", "VV"))
+    .select("VV")
 )
 
 
@@ -233,33 +237,55 @@ def send_email_notification(date_str, csv_path):
         print(f"❌ Email send failed: {e}")
 
 
+def extract_vv_mean(img):
+    stats = img.reduceRegion(
+        reducer=ee.Reducer.mean(), geometry=zoi, scale=10, maxPixels=1e9
+    )
+    return ee.Feature(
+        None, {"date": img.date().format("YYYY-MM-dd"), "vv": stats.get("VV")}
+    )
+
+
+features = smap.map(extract_vv_mean).filter(ee.Filter.notNull(["vv"]))
+results = features.getInfo()["features"]
+df = pd.DataFrame(
+    [{"date": f["properties"]["date"], "vv_dB": f["properties"]["vv"]} for f in results]
+)
+
+df["date"] = pd.to_datetime(df["date"])
+print(df)
+
+
 dates = smap.aggregate_array("system:time_start").getInfo()
 if dates:
-    print(dates)
+    first = datetime.fromtimestamp(dates[0] / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M")
+    last = datetime.fromtimestamp(dates[-1] / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M")
+    print(f"{first} → {last}")
 else:
     print("⚠️ No images found.")
 # Run export
 images = smap.toList(smap.size())
 image_count = smap.size().getInfo()
 
-if image_count == 0:
-    print("⚠️ No images found for the specified date range.")
-else:
-    for i in range(image_count):
-        try:
-            image = ee.Image(images.get(i))
-            export_and_notify(image)
-        except ee.EEException as e:
-            print(f"❌ Failed to process image at index {i}: {e}")
-if exported_data:
-    df = pd.DataFrame(exported_data)
-    os.makedirs("exports", exist_ok=True)
-    combined_csv_path = f"exports/soil_moisture_{START_DATE}_{END_DATE}.csv"
-    df.to_csv(combined_csv_path, index=False)
-    print(f"💾 Combined CSV saved: {combined_csv_path}")
+# if image_count == 0:
+#     print("⚠️ No images found for the specified date range.")
+# else:
+#     for i in range(image_count):
+#         try:
+#             image = ee.Image(images.get(i))
+#             export_and_notify(image)
+#         except ee.EEException as e:
+#             print(f"❌ Failed to process image at index {i}: {e}")
 
-    # ✅ One-time notification
-    send_webhook_notification([d["date"] for d in exported_data])
-    send_email_notification("batch", combined_csv_path)
-else:
-    print("⚠️ No data to export or notify.")
+# if exported_data:
+#     df = pd.DataFrame(exported_data)
+#     os.makedirs("exports", exist_ok=True)
+#     combined_csv_path = f"exports/soil_moisture_{START_DATE}_{END_DATE}.csv"
+#     df.to_csv(combined_csv_path, index=False)
+#     print(f"💾 Combined CSV saved: {combined_csv_path}")
+
+#     # ✅ One-time notification
+#     send_webhook_notification([d["date"] for d in exported_data])
+#     send_email_notification("batch", combined_csv_path)
+# else:
+#     print("⚠️ No data to export or notify.")
