@@ -1,11 +1,5 @@
-
+# docker compose -f "docker-compose.yml" up -d --build
 services:
-    # soil-moisture-fetcher:
-    #     build: .
-    #     container_name: soil-moisture-fetcher
-    #     env_file:
-    #         - .env
-    #     restart: 'no'
     db:
         image: postgres:15
         restart: always
@@ -19,12 +13,14 @@ services:
             - '5454:5432'
 
     soil_fetcher:
-        build: ./server
-        env_file: ./server/.env
+        build: ./src
+        env_file: ./src/.env
+        container_name: soil-moisture-fetcher
+        restart: 'no'
         depends_on:
             - db
         volumes:
-            - ./app:/server
+            - C:/Users/youmt/.config/earthengine:/root/.config/earthengine:ro
 
 volumes:
     db_data:

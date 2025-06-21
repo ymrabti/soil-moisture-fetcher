@@ -34,16 +34,17 @@ def create_table_if_missing():
         with conn.cursor() as cur:
             cur.execute(
                 """
-                CREATE TABLE IF NOT EXISTS soil_state (
+                CREATE TABLE IF NOT EXISTS vv_data (
                     id SERIAL PRIMARY KEY,
-                    last_date DATE NOT NULL,
-                    moisture FLOAT,
+                    date DATE UNIQUE NOT NULL,
+                    vv_dB FLOAT,
+                    description TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
+                );
+
             """
             )
             conn.commit()
-
 
 def get_connection():
     """
@@ -74,21 +75,21 @@ def get_connection():
 
 def get_last_processed_date():
     """
-    Retrieves the most recent 'last_date' entry from the 'soil_state' table in the database.
+    Retrieves the most recent 'last_date' entry from the 'vv_dB' table in the database.
 
     Returns:
         datetime or None: The latest processed date if available; otherwise, None.
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT last_date FROM soil_state ORDER BY id DESC LIMIT 1")
-            row = cur.fetchone()
-            return row[0] if row else None
+            cur.execute("SELECT MAX(date) FROM vv_data")
+            result = cur.fetchone()
+            return result[0] if result and result[0] else None
 
 
-def set_last_processed(date_str, moisture_value):
+def set_last_processed(moisture_data):
     """
-    Inserts a new record into the 'soil_state' table with the provided date and moisture value.
+    Inserts a new record into the 'vv_dB' table with the provided date and moisture value.
 
     Args:
         date_str (str): The date string representing the last processed date.
@@ -99,8 +100,16 @@ def set_last_processed(date_str, moisture_value):
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO soil_state (last_date, moisture) VALUES (%s, %s)",
-                (date_str, moisture_value),
-            )
-            conn.commit()
+            for entry in moisture_data:
+                cur.execute(
+                    """
+                    INSERT INTO vv_data (date, vv_dB, description)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (date) DO UPDATE 
+                    SET vv_dB = EXCLUDED.vv_dB,
+                        description = EXCLUDED.description
+                """,
+                    (entry["date"], entry["vv_dB"], entry["description"]),
+                )
+        conn.commit()
+

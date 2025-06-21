@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 import ee
 import pandas as pd
 from dotenv import load_dotenv
+from utils import get_description, zoi
 from webhook_notifier import send_webhook_notification
 from email_notifier import send_email_notification
 
@@ -36,31 +37,8 @@ save_folder = os.getenv("GDRIVE_FOLDER", "GEE_Soil_Moisture")
 
 ee.Initialize()
 
-# Zone of Interest
-zoi = ee.Geometry.Polygon(
-    [
-        [
-            [-2.3481773965156094, 35.10994069768071],
-            [-2.3456620930114127, 35.1057921166766],
-            [-2.3395766814241767, 35.10280500753562],
-            [-2.331259952255124, 35.10466366608924],
-            [-2.327568135891795, 35.11004026111742],
-            [-2.326026498289366, 35.1151510164202],
-            [-2.3265944700380317, 35.120560103022925],
-            [-2.337020808557469, 35.12357974361997],
-            [-2.3424976789862626, 35.12304882591104],
-            [-2.3440393165879527, 35.11992961448671],
-            [-2.344485580152309, 35.11820404187584],
-            [-2.343674191940522, 35.115781541852286],
-            [-2.3447289966161122, 35.113292596948455],
-            [-2.3481773965156094, 35.10994069768071],
-        ]
-    ]
-)
-
 today = datetime.now(timezone.utc).date()
 yesterday = today - timedelta(days=5)
-
 START_DATE = yesterday.strftime("%Y-%m-%d")
 END_DATE = today.strftime("%Y-%m-%d")
 
@@ -73,11 +51,20 @@ smap = (
     .select("sm_surface")
 )
 
-dates = smap.aggregate_array("system:time_start").getInfo()
+# cls && .venv\Scripts\python.exe main/main_sentinel.py
+def main():
+    """
+    Main function to aggregate and print the array of start times from the SMAP dataset.
 
-# Run export
-images = smap.toList(smap.size())
-image_count = smap.size().getInfo()
+    This function retrieves the 'system:time_start' property from the SMAP dataset using the
+    aggregate_array method, converts it to a Python list with getInfo(), and prints the resulting dates.
+
+    Note:
+        The export functionality (run_export) is currently commented out.
+    """
+    dates = smap.aggregate_array("system:time_start").getInfo()
+    print(dates)
+    # run_export()
 
 
 def extract_data(img):
@@ -119,37 +106,20 @@ def extract_data(img):
 
     # 1. Extract soil moisture mean for your ZOI on this image
     mean_dict = img.reduceRegion(
-        reducer=ee.Reducer.mean(), geometry=zoi, scale=10000, maxPixels=1e9
+        reducer=ee.Reducer.mean(),
+        geometry=zoi,
+        scale=10000,
+        maxPixels=1e9,
     ).getInfo()
 
+    vv = mean_dict.get("sm_surface", None)
     exported_data.append(
-        {"date": date_str, "soil_moisture_mean": mean_dict.get("sm_surface", None)}
+        {
+            "date": date_str,
+            "soil_moisture_mean": vv,
+            "description": get_description(vv),
+        }
     )
-
-
-# cls && .venv\Scripts\python.exe setntinet.py
-def print_available_dates():
-    """
-    Prints the range of available dates from the 'smap' dataset.
-
-    This function retrieves an array of timestamps from the 'smap' object's 'system:time_start' property,
-    converts the first and last timestamps to human-readable UTC date strings, and prints the range.
-    If no dates are found, it prints a warning message.
-
-    Returns:
-        None
-    """
-
-    if dates:
-        first = datetime.fromtimestamp(dates[0] / 1000, timezone.utc).strftime(
-            "%Y-%m-%d %H:%M"
-        )
-        last = datetime.fromtimestamp(dates[-1] / 1000, timezone.utc).strftime(
-            "%Y-%m-%d %H:%M"
-        )
-        print(f"{first} → {last}")
-    else:
-        print("⚠️ No images found.")
 
 
 # Run export
@@ -164,6 +134,9 @@ def run_export():
         ee.EEException: If an error occurs during image processing.
     """
 
+    # Run export
+    images = smap.toList(smap.size())
+    image_count = smap.size().getInfo()
     if image_count == 0:
         print("⚠️ No images found for the specified date range.")
     else:
@@ -173,6 +146,8 @@ def run_export():
                 extract_data(image)
             except ee.EEException as e:
                 print(f"❌ Failed to process image at index {i}: {e}")
+
+    bulk_notify_and_hook()
 
 
 def bulk_notify_and_hook():
@@ -203,7 +178,3 @@ def bulk_notify_and_hook():
         send_email_notification("batch", combined_csv_path)
     else:
         print("⚠️ No data to export or notify.")
-
-
-run_export()
-bulk_notify_and_hook()

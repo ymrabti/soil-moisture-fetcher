@@ -27,44 +27,25 @@ from datetime import datetime, timedelta, timezone
 import ee
 import pandas as pd
 from dotenv import load_dotenv
+
+# from db import get_last_processed_date
+from db import create_table_if_missing, get_last_processed_date, set_last_processed
+from utils import get_description, zoi
 from webhook_notifier import send_webhook_notification
 from email_notifier import send_email_notification
 
 load_dotenv()
 CREDENTIALS_JSON = os.getenv("EARTHENGINE_CREDENTIALS")
-save_folder=os.getenv("GDRIVE_FOLDER", "GEE_Soil_Moisture")
+save_folder = os.getenv("GDRIVE_FOLDER", "GEE_Soil_Moisture")
 
-ee.Initialize()
 
-# Zone of Interest
-zoi = ee.Geometry.Polygon(
-    [
-        [
-            [-2.3481773965156094, 35.10994069768071],
-            [-2.3456620930114127, 35.1057921166766],
-            [-2.3395766814241767, 35.10280500753562],
-            [-2.331259952255124, 35.10466366608924],
-            [-2.327568135891795, 35.11004026111742],
-            [-2.326026498289366, 35.1151510164202],
-            [-2.3265944700380317, 35.120560103022925],
-            [-2.337020808557469, 35.12357974361997],
-            [-2.3424976789862626, 35.12304882591104],
-            [-2.3440393165879527, 35.11992961448671],
-            [-2.344485580152309, 35.11820404187584],
-            [-2.343674191940522, 35.115781541852286],
-            [-2.3447289966161122, 35.113292596948455],
-            [-2.3481773965156094, 35.10994069768071],
-        ]
-    ]
-)
+create_table_if_missing()
 
 today = datetime.now(timezone.utc).date()
 yesterday = today - timedelta(days=15)
 
 START_DATE = yesterday.strftime("%Y-%m-%d")
 END_DATE = today.strftime("%Y-%m-%d")
-
-print(f"📅 Fetching data from {START_DATE} to {END_DATE}")
 
 exported_data = []
 
@@ -74,6 +55,7 @@ vis_params = {
     "max": -5,
     "palette": ["0000FF", "00FFFF", "00FF00", "FFFF00", "FF0000"],  # Blue to Red
 }
+
 # Load SMAP dataset
 smap = (
     ee.ImageCollection("COPERNICUS/S1_GRD")
@@ -84,6 +66,41 @@ smap = (
     .filter(ee.Filter.listContains("transmitterReceiverPolarisation", "VV"))
     .select("VV")
 )
+
+
+# cls && .venv\Scripts\python.exe src/main_sentinel.py
+def main():
+    """
+    Main function to aggregate and print the array of start times from the SMAP dataset.
+
+    This function retrieves the 'system:time_start' property from the SMAP dataset using the
+    aggregate_array method, converts it to a Python list with getInfo(), and prints the resulting dates.
+
+    Note:
+        The export functionality (run_export) is currently commented out.
+    """
+    dates = smap.aggregate_array("system:time_start").getInfo()
+
+    last = get_last_processed_date()
+
+    # Convert timestamps to datetime objects
+    image_dates = [datetime.fromtimestamp(ts / 1000, tz=timezone.utc) for ts in dates]
+
+    # Filter images that are after the last processed date (or all if None)
+    if last:
+        new_dates = [dt for dt in image_dates if dt.date() > last]
+    else:
+        new_dates = image_dates
+
+    # ✅ Example log
+    if new_dates:
+        print(f"🆕 {len(new_dates)} new dates to process.")
+        print("From:", new_dates[0], "→", new_dates[-1])
+        print(f"🆕 Found {len(new_dates)} new dates to process.")
+
+        export_table()
+    else:
+        print("✅ No new dates to process.")
 
 
 def extract_data(img):
@@ -128,11 +145,19 @@ def extract_data(img):
 
     # 1. Extract soil moisture mean for your ZOI on this image
     mean_dict = img.reduceRegion(
-        reducer=ee.Reducer.mean(), geometry=zoi, scale=10, maxPixels=1e9
+        reducer=ee.Reducer.mean(),
+        geometry=zoi,
+        scale=10,
+        maxPixels=1e9,
     ).getInfo()
 
+    vv = mean_dict.get("VV", None)
     exported_data.append(
-        {"date": date_str, "soil_moisture_mean": mean_dict.get("VV", None)}
+        {
+            "date": date_str,
+            "soil_moisture_mean": vv,
+            "description": get_description(vv),
+        }
     )
 
 
@@ -161,8 +186,8 @@ def extract_vv_mean(img):
 def export_table():
     """
     Exports a table of mean VV (vertical transmit and receive) backscatter values from a collection of features.
-    This function processes a collection of features by extracting the mean VV value for each feature, filtering out any features with null VV values, and then converting the results into a pandas DataFrame. 
-    The resulting DataFrame contains columns for the date and the corresponding VV value in decibels (dB). The 'date' column is converted to pandas datetime objects for easier manipulation and analysis. 
+    This function processes a collection of features by extracting the mean VV value for each feature, filtering out any features with null VV values, and then converting the results into a pandas DataFrame.
+    The resulting DataFrame contains columns for the date and the corresponding VV value in decibels (dB). The 'date' column is converted to pandas datetime objects for easier manipulation and analysis.
     The DataFrame is then printed to the console.
     Returns:
         None
@@ -171,16 +196,29 @@ def export_table():
     results = features.getInfo()["features"]
     df = pd.DataFrame(
         [
-            {"date": f["properties"]["date"], "vv_dB": f["properties"]["vv"]}
+            {
+                "date": f["properties"]["date"],
+                "vv_dB": f["properties"]["vv"],
+                "description": get_description(f["properties"]["vv"]),
+            }
             for f in results
         ]
     )
 
-    df["date"] = pd.to_datetime(df["date"])
+    folder_path = os.path.join("exports", f"{START_DATE}_{END_DATE}")
+    os.makedirs(folder_path, exist_ok=True)
+    combined_csv_path = f"exports/{START_DATE}_{END_DATE}/soil_moisture.csv"
+    df.to_csv(combined_csv_path, index=False)
+    print(f"💾 Combined CSV saved: {combined_csv_path}")
+
     print(df)
+    dataset = df.to_dict(orient="records")
+    print(dataset)
+    send_webhook_notification(dataset)
+    send_email_notification("batch", combined_csv_path)
+    set_last_processed(dataset)
 
 
-# 2️⃣ Generate a colored map of the median VV over your ZOI
 def export_geotiff():
     """
     Exports the median Sentinel-1 VV image as a GeoTIFF file to Google Drive.
@@ -207,40 +245,15 @@ def export_geotiff():
     task = ee.batch.Export.image.toDrive(
         image=vv_median,
         description=export_filename,
-        folder="GEE_Exports",  # Name of your Google Drive folder
+        folder="GEE_Exports",
         fileNamePrefix=export_filename,
         region=zoi,
-        scale=10,  # 10m native resolution
+        scale=10,
         crs="EPSG:4326",
         maxPixels=1e9,
         fileFormat="GeoTIFF",
     )
     task.start()
-
-
-# cls && .venv\Scripts\python.exe setntinet.py
-def print_available_dates():
-    """
-    Prints the range of available dates from the 'smap' dataset.
-
-    This function retrieves an array of timestamps from the 'smap' object's 'system:time_start' property,
-    converts the first and last timestamps to human-readable UTC date strings, and prints the range.
-    If no dates are found, it prints a warning message.
-
-    Returns:
-        None
-    """
-    dates = smap.aggregate_array("system:time_start").getInfo()
-    if dates:
-        first = datetime.fromtimestamp(dates[0] / 1000, timezone.utc).strftime(
-            "%Y-%m-%d %H:%M"
-        )
-        last = datetime.fromtimestamp(dates[-1] / 1000, timezone.utc).strftime(
-            "%Y-%m-%d %H:%M"
-        )
-        print(f"{first} → {last}")
-    else:
-        print("⚠️ No images found.")
 
 
 # Run export
@@ -266,6 +279,7 @@ def run_export():
                 extract_data(image)
             except ee.EEException as e:
                 print(f"❌ Failed to process image at index {i}: {e}")
+    bulk_notify_and_hook()
 
 
 def bulk_notify_and_hook():
@@ -292,11 +306,10 @@ def bulk_notify_and_hook():
         print(f"💾 Combined CSV saved: {combined_csv_path}")
 
         # ✅ One-time notification
-        send_webhook_notification([d["date"] for d in exported_data])
+        send_webhook_notification(exported_data)
         send_email_notification("batch", combined_csv_path)
     else:
         print("⚠️ No data to export or notify.")
 
 
-run_export()
-bulk_notify_and_hook()
+main()

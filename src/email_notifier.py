@@ -12,7 +12,9 @@ Functions:
     send_email_notification(date_str, csv_path):
         Sends an email notification for the specified date, with an optional CSV attachment.
             csv_path (str, optional): Path to the CSV file to attach. If None or file does not exist, no attachment is sent.
+Author: Younes MRABTI
 """
+
 import os
 import smtplib
 
