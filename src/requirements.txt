@@ -2,3 +2,4 @@ earthengine-api
 requests
 python-dotenv
 pandas
+psycopg2-binary
