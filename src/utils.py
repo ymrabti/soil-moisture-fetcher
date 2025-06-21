@@ -3,7 +3,7 @@ utils.py
 Utility functions for interpreting soil moisture conditions from Sentinel-1 VV backscatter values.
 This module provides helper functions to classify and describe soil moisture levels based on
 VV polarization backscatter (in decibels, dB), typically ranging from -25 to -5 dB. The main
-function, `get_description`, returns a textual description of the soil moisture class for a
+function, `get_description` `get_sentinel_description`, returns a textual description of the soil moisture class for a
 given VV dB value.
 Soil moisture classes are defined as:
     - -25 <= vv_db < -22: Extremely Dry
@@ -77,6 +77,45 @@ def get_description(vv_db):
         return "4 – Moderately Moist"
     else:
         return "5 – Moist: Recently irrigated or after light rain"
+
+
+def get_sentinel_description(vv_db):
+    """
+    Returns a textual description of soil moisture conditions based on the input VV dB value.
+
+    Parameters:
+        vv_db (float): The VV backscatter value in decibels (dB), typically ranging from -25 to -5.
+
+    Returns:
+        str: A description of the soil moisture class corresponding to the input value.
+             Returns "Unknown moisture class" if the value does not fall within the defined ranges.
+
+    Soil moisture classes:
+        - -25 <= vv_db < -22: "1 – Extremely Dry: Hard, cracked soil; drought or bare land"
+        - -22 <= vv_db < -20: "2 – Very Dry: Dry fields; low water retention"
+        - -20 <= vv_db < -18: "3 – Dry: Lightly moist topsoil; early stress"
+        - -18 <= vv_db < -16: "4 – Slightly Moist: Normal soil conditions; vegetated"
+        - -16 <= vv_db < -14: "5 – Moist: Recently irrigated or after light rain"
+        - -14 <= vv_db < -12: "6 – Very Moist: Wet surface; saturated or ponding starts"
+        - -12 <= vv_db <= -5: "7 – Saturated / Waterlogged: Standing water, flooded fields, or dense canopy"
+    """
+    if -25 <= vv_db < -22:
+        return "1 – Extremely Dry: Hard, cracked soil; drought or bare land"
+    elif -22 <= vv_db < -20:
+        return "2 – Very Dry: Dry fields; low water retention"
+    elif -20 <= vv_db < -18:
+        return "3 – Dry: Lightly moist topsoil; early stress"
+    elif -18 <= vv_db < -16:
+        return "4 – Slightly Moist: Normal soil conditions; vegetated"
+    elif -16 <= vv_db < -14:
+        return "5 – Moist: Recently irrigated or after light rain"
+    elif -14 <= vv_db < -12:
+        return "6 – Very Moist: Wet surface; saturated or ponding starts"
+    elif -12 <= vv_db <= -5:
+        return "7 – Saturated / Waterlogged: Standing water, flooded fields, or dense canopy"
+    else:
+        return "Unknown moisture class"
+
 
 def print_available_dates(smap):
     """

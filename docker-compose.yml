@@ -15,8 +15,13 @@ services:
     soil_fetcher:
         build: ./src
         env_file: ./src/.env
+        environment:
+            DB_HOST: db
+            DB_NAME: soil_db
+            DB_USER: user
+            DB_PASS: pass
         container_name: soil-moisture-fetcher
-        restart: 'no'
+        restart: unless-stopped
         depends_on:
             - db
         volumes:

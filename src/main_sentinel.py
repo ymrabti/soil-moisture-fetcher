@@ -22,7 +22,7 @@ Author: Younes Mrabti
 """
 
 import os
-
+import time
 from datetime import datetime, timedelta, timezone
 import ee
 import pandas as pd
@@ -30,7 +30,7 @@ from dotenv import load_dotenv
 
 # from db import get_last_processed_date
 from db import create_table_if_missing, get_last_processed_date, set_last_processed
-from utils import get_description, zoi
+from utils import get_sentinel_description, zoi
 from webhook_notifier import send_webhook_notification
 from email_notifier import send_email_notification
 
@@ -97,17 +97,20 @@ def main():
         updated_smap = (
             ee.ImageCollection("COPERNICUS/S1_GRD")
             .filterBounds(zoi)
-            .filterDate(new_dates[0], new_dates[-1])
+            .filterDate(new_dates[0])
             .filter(ee.Filter.eq("instrumentMode", "IW"))
             .filter(ee.Filter.eq("orbitProperties_pass", "ASCENDING"))
             .filter(ee.Filter.listContains("transmitterReceiverPolarisation", "VV"))
             .select("VV")
         )
-        print(f"🆕 {len(new_dates)} new dates to process.")
-        print("From:", new_dates[0], "→", new_dates[-1])
-        print(f"🆕 Found {len(new_dates)} new dates to process.")
 
-        ts = f"{new_dates[0]}_{new_dates[-1]}"
+        print(f"🆕  {len(new_dates)} new dates to process.")
+
+        if len(new_dates) == 1:
+            ts = f"{new_dates[0].strftime("%Y-%m-%d %H_%M")}"
+        else:
+            ts = f"{new_dates[0].strftime("%Y-%m-%d %H_%M")} → {new_dates[-1].strftime("%Y-%m-%d %H_%M")}"
+        print("From:", ts)
         export_table(updated_smap, ts)
     else:
         print("✅ No new dates to process.")
@@ -165,7 +168,7 @@ def extract_data(img):
         {
             "date": date_str,
             "vv_dB": vv,
-            "description": get_description(vv),
+            "description": get_sentinel_description(vv),
         }
     )
 
@@ -208,7 +211,7 @@ def export_table(smap_to_use, timestamps):
             {
                 "date": f["properties"]["date"],
                 "vv_dB": f["properties"]["vv"],
-                "description": get_description(f["properties"]["vv"]),
+                "description": get_sentinel_description(f["properties"]["vv"]),
             }
             for f in results
         ]
@@ -320,4 +323,15 @@ def bulk_notify_and_hook(timestamps):
         print("⚠️ No data to export or notify.")
 
 
-main()
+# Run the script every 7 days
+INTERVAL_DAYS = 7
+INTERVAL_SECONDS = INTERVAL_DAYS * 24 * 60 * 60
+
+if __name__ == "__main__":
+    while True:
+        try:
+            main()
+        except (ee.EEException, OSError, ValueError) as e:
+            print(f"❌ Error occurred: {e}")
+        print(f"⏳ Sleeping for {INTERVAL_DAYS} days...\n")
+        time.sleep(INTERVAL_SECONDS)

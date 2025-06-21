@@ -18,7 +18,6 @@ Author: Younes MRABTI
 import os
 import smtplib
 
-from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import formatdate
 from email.mime.base import MIMEBase
@@ -54,9 +53,7 @@ def send_email_notification(date_str, csv_path):
     Raises:
         smtplib.SMTPException: If sending the email fails.
     """
-    today = datetime.now(timezone.utc).date()
-    today_date = today.strftime("%Y-%m-%d %H:%M")
-    subject = f"🛰️ {today_date} SMAP Soil Moisture Data - {date_str}"
+    subject = f"🛰️ SMAP Soil Moisture Data - {date_str}"
     text_body = f"New SMAP soil moisture data for {date_str} is now available. See attached CSV."
 
     html_body = f"""

@@ -87,10 +87,12 @@ def main():
             .select("sm_surface")
         )
         print(f"🆕 {len(new_dates)} new dates to process.")
-        print("From:", new_dates[0], "→", new_dates[-1])
-        print(f"🆕 Found {len(new_dates)} new dates to process.")
 
-        ts = f"{new_dates[0]}_{new_dates[-1]}"
+        if len(new_dates) == 1:
+            ts = f"{new_dates[0].strftime("%Y-%m-%d %H_%M")}"
+        else:
+            ts = f"{new_dates[0].strftime("%Y-%m-%d %H_%M")} → {new_dates[-1].strftime("%Y-%m-%d %H_%M")}"
+        print("From:", ts)
         run_export(updated_smap, ts)
     else:
         print("✅ No new dates to process.")
