@@ -7,7 +7,7 @@ Functions:
         Retrieves the most recent 'last_date' entry from the 'soil_state' table.
         Returns:
             The last processed date as stored in the database, or None if no entry exists.
-    set_last_processed(date_str, moisture_value):
+    `set_last_processed(data):
         Inserts a new record into the 'soil_state' table with the provided date and moisture value.
         Args:
             date_str (str): The date to record as the last processed date.
@@ -45,6 +45,7 @@ def create_table_if_missing():
             """
             )
             conn.commit()
+
 
 def get_connection():
     """
@@ -112,4 +113,3 @@ def set_last_processed(moisture_data):
                     (entry["date"], entry["vv_dB"], entry["description"]),
                 )
         conn.commit()
-

@@ -42,7 +42,7 @@ save_folder = os.getenv("GDRIVE_FOLDER", "GEE_Soil_Moisture")
 create_table_if_missing()
 
 today = datetime.now(timezone.utc).date()
-yesterday = today - timedelta(days=15)
+yesterday = today - timedelta(days=7)
 
 START_DATE = yesterday.strftime("%Y-%m-%d")
 END_DATE = today.strftime("%Y-%m-%d")
@@ -94,11 +94,21 @@ def main():
 
     # ✅ Example log
     if new_dates:
+        updated_smap = (
+            ee.ImageCollection("COPERNICUS/S1_GRD")
+            .filterBounds(zoi)
+            .filterDate(new_dates[0], new_dates[-1])
+            .filter(ee.Filter.eq("instrumentMode", "IW"))
+            .filter(ee.Filter.eq("orbitProperties_pass", "ASCENDING"))
+            .filter(ee.Filter.listContains("transmitterReceiverPolarisation", "VV"))
+            .select("VV")
+        )
         print(f"🆕 {len(new_dates)} new dates to process.")
         print("From:", new_dates[0], "→", new_dates[-1])
         print(f"🆕 Found {len(new_dates)} new dates to process.")
 
-        export_table()
+        ts = f"{new_dates[0]}_{new_dates[-1]}"
+        export_table(updated_smap, ts)
     else:
         print("✅ No new dates to process.")
 
@@ -127,7 +137,6 @@ def extract_data(img):
     date_str = img.date().format("YYYY-MM-dd").getInfo()
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     filename = f"{now_str}/soil_moisture_{date_str}"
-    print(filename)
 
     # vv_rgb = img.clip(zoi).visualize(**vis_params)
     task = ee.batch.Export.image.toDrive(
@@ -155,7 +164,7 @@ def extract_data(img):
     exported_data.append(
         {
             "date": date_str,
-            "soil_moisture_mean": vv,
+            "vv_dB": vv,
             "description": get_description(vv),
         }
     )
@@ -183,7 +192,7 @@ def extract_vv_mean(img):
     )
 
 
-def export_table():
+def export_table(smap_to_use, timestamps):
     """
     Exports a table of mean VV (vertical transmit and receive) backscatter values from a collection of features.
     This function processes a collection of features by extracting the mean VV value for each feature, filtering out any features with null VV values, and then converting the results into a pandas DataFrame.
@@ -192,7 +201,7 @@ def export_table():
     Returns:
         None
     """
-    features = smap.map(extract_vv_mean).filter(ee.Filter.notNull(["vv"]))
+    features = smap_to_use.map(extract_vv_mean).filter(ee.Filter.notNull(["vv"]))
     results = features.getInfo()["features"]
     df = pd.DataFrame(
         [
@@ -205,21 +214,19 @@ def export_table():
         ]
     )
 
-    folder_path = os.path.join("exports", f"{START_DATE}_{END_DATE}")
+    folder_path = os.path.join("exports", timestamps)
     os.makedirs(folder_path, exist_ok=True)
-    combined_csv_path = f"exports/{START_DATE}_{END_DATE}/soil_moisture.csv"
+    combined_csv_path = f"exports/{timestamps}/soil_moisture.csv"
     df.to_csv(combined_csv_path, index=False)
     print(f"💾 Combined CSV saved: {combined_csv_path}")
 
-    print(df)
     dataset = df.to_dict(orient="records")
-    print(dataset)
     send_webhook_notification(dataset)
-    send_email_notification("batch", combined_csv_path)
+    send_email_notification(timestamps, combined_csv_path)
     set_last_processed(dataset)
 
 
-def export_geotiff():
+def export_geotiff(updated_smap):
     """
     Exports the median Sentinel-1 VV image as a GeoTIFF file to Google Drive.
 
@@ -236,11 +243,11 @@ def export_geotiff():
         None
 
     Requires:
-        - The variables `smap` (an Earth Engine ImageCollection) and `zoi` (the region of interest) must be defined in the global scope.
+        - The variables `updated_smap` (an Earth Engine ImageCollection) and `zoi` (the region of interest) must be defined in the global scope.
         - The Earth Engine Python API (`ee`) must be initialized.
     """
     # Compute median image (reduce noise)
-    vv_median = smap.median().clip(zoi)
+    vv_median = updated_smap.median().clip(zoi)
     export_filename = f"Sentinel1_VV_{datetime.now().strftime('%Y%m%d_%H%M')}"
     task = ee.batch.Export.image.toDrive(
         image=vv_median,
@@ -257,18 +264,18 @@ def export_geotiff():
 
 
 # Run export
-def run_export():
+def run_export(updated_smap, timestamps):
     """
     Processes and exports soil moisture images from the SMAP dataset within a specified date range.
-    This function retrieves a list of images from the global `smap` object, checks if any images are available,
+    This function retrieves a list of images from the global `updated_smap` object, checks if any images are available,
     and iterates through each image to extract data using the `extract_data` function. If no images are found,
     a warning message is printed. If an error occurs while processing an image, an error message is displayed
     with the corresponding index and exception details.
     Raises:
         ee.EEException: If an error occurs during image processing.
     """
-    images = smap.toList(smap.size())
-    image_count = smap.size().getInfo()
+    images = updated_smap.toList(updated_smap.size())
+    image_count = updated_smap.size().getInfo()
 
     if image_count == 0:
         print("⚠️ No images found for the specified date range.")
@@ -279,10 +286,10 @@ def run_export():
                 extract_data(image)
             except ee.EEException as e:
                 print(f"❌ Failed to process image at index {i}: {e}")
-    bulk_notify_and_hook()
+    bulk_notify_and_hook(timestamps)
 
 
-def bulk_notify_and_hook():
+def bulk_notify_and_hook(timestamps):
     """
     Processes and exports collected soil moisture data, then sends notifications.
     If `exported_data` is available, this function:
@@ -295,8 +302,8 @@ def bulk_notify_and_hook():
     Assumes the existence of the following global variables and functions:
     - `exported_data`: List of dictionaries containing soil moisture data.
     - `START_DATE`, `END_DATE`: Strings representing the date range of the data.
-    - `send_webhook_notification(dates: List[str])`: Function to send a webhook notification.
-    - `send_email_notification(mode: str, file_path: str)`: Function to send an email notification.
+    - `send_webhook_notification(dates: exported_data)`: Function to send a webhook notification.
+    - `send_email_notification (mode: str, file_path: str)`: Function to send an email notification.
     """
     if exported_data:
         df = pd.DataFrame(exported_data)
@@ -307,7 +314,8 @@ def bulk_notify_and_hook():
 
         # ✅ One-time notification
         send_webhook_notification(exported_data)
-        send_email_notification("batch", combined_csv_path)
+        send_email_notification(timestamps, combined_csv_path)
+        set_last_processed(exported_data)
     else:
         print("⚠️ No data to export or notify.")
 

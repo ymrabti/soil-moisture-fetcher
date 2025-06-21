@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 import ee
 import pandas as pd
 from dotenv import load_dotenv
+from db import get_last_processed_date, set_last_processed
 from utils import get_description, zoi
 from webhook_notifier import send_webhook_notification
 from email_notifier import send_email_notification
@@ -47,11 +48,13 @@ exported_data = []
 # Load SMAP dataset
 smap = (
     ee.ImageCollection("NASA/SMAP/SPL4SMGP/007")
+    .filterBounds(zoi)
     .filterDate(START_DATE, END_DATE)
     .select("sm_surface")
 )
 
-# cls && .venv\Scripts\python.exe main/main_sentinel.py
+
+# cls && .venv\Scripts\python.exe src/main.py
 def main():
     """
     Main function to aggregate and print the array of start times from the SMAP dataset.
@@ -63,8 +66,34 @@ def main():
         The export functionality (run_export) is currently commented out.
     """
     dates = smap.aggregate_array("system:time_start").getInfo()
-    print(dates)
-    # run_export()
+
+    last = get_last_processed_date()
+
+    # Convert timestamps to datetime objects
+    image_dates = [datetime.fromtimestamp(ts / 1000, tz=timezone.utc) for ts in dates]
+
+    # Filter images that are after the last processed date (or all if None)
+    if last:
+        new_dates = [dt for dt in image_dates if dt.date() > last]
+    else:
+        new_dates = image_dates
+
+    # ✅ Example log
+    if new_dates:
+        updated_smap = (
+            ee.ImageCollection("NASA/SMAP/SPL4SMGP/007")
+            .filterBounds(zoi)
+            .filterDate(new_dates[0], new_dates[-1])
+            .select("sm_surface")
+        )
+        print(f"🆕 {len(new_dates)} new dates to process.")
+        print("From:", new_dates[0], "→", new_dates[-1])
+        print(f"🆕 Found {len(new_dates)} new dates to process.")
+
+        ts = f"{new_dates[0]}_{new_dates[-1]}"
+        run_export(updated_smap, ts)
+    else:
+        print("✅ No new dates to process.")
 
 
 def extract_data(img):
@@ -116,17 +145,17 @@ def extract_data(img):
     exported_data.append(
         {
             "date": date_str,
-            "soil_moisture_mean": vv,
+            "vv_dB": vv,
             "description": get_description(vv),
         }
     )
 
 
 # Run export
-def run_export():
+def run_export(smap_to_use, times):
     """
     Processes and exports soil moisture images from the SMAP dataset within a specified date range.
-    This function retrieves a list of images from the global `smap` object, checks if any images are available,
+    This function retrieves a list of images from the `smap_to_use` object, checks if any images are available,
     and iterates through each image to extract data using the `extract_data` function. If no images are found,
     a warning message is printed. If an error occurs while processing an image, an error message is displayed
     with the corresponding index and exception details.
@@ -135,8 +164,8 @@ def run_export():
     """
 
     # Run export
-    images = smap.toList(smap.size())
-    image_count = smap.size().getInfo()
+    images = smap_to_use.toList(smap_to_use.size())
+    image_count = smap_to_use.size().getInfo()
     if image_count == 0:
         print("⚠️ No images found for the specified date range.")
     else:
@@ -147,10 +176,10 @@ def run_export():
             except ee.EEException as e:
                 print(f"❌ Failed to process image at index {i}: {e}")
 
-    bulk_notify_and_hook()
+    bulk_notify_and_hook(times)
 
 
-def bulk_notify_and_hook():
+def bulk_notify_and_hook(times):
     """
     Processes and exports collected soil moisture data, then sends notifications.
     If `exported_data` is available, this function:
@@ -163,8 +192,8 @@ def bulk_notify_and_hook():
     Assumes the existence of the following global variables and functions:
     - `exported_data`: List of dictionaries containing soil moisture data.
     - `START_DATE`, `END_DATE`: Strings representing the date range of the data.
-    - `send_webhook_notification(dates: List[str])`: Function to send a webhook notification.
-    - `send_email_notification(mode: str, file_path: str)`: Function to send an email notification.
+    - `send_webhook_notification(dates: exported_data)`: Function to send a webhook notification.
+    - `send_email_notification (mode: str, file_path: str)`: Function to send an email notification.
     """
     if exported_data:
         df = pd.DataFrame(exported_data)
@@ -174,7 +203,11 @@ def bulk_notify_and_hook():
         print(f"💾 Combined CSV saved: {combined_csv_path}")
 
         # ✅ One-time notification
-        send_webhook_notification([d["date"] for d in exported_data])
-        send_email_notification("batch", combined_csv_path)
+        send_webhook_notification(exported_data)
+        send_email_notification(times, combined_csv_path)
+        set_last_processed(exported_data)
     else:
         print("⚠️ No data to export or notify.")
+
+
+main()
