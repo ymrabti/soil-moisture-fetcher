@@ -64,7 +64,6 @@ A Python-based automation tool for fetching, processing, and exporting NASA SMAP
 
 Copy `.env.sample` to `.env` and fill in your credentials:
 
-- `EARTHENGINE_CREDENTIALS`: JSON string for GEE authentication
 - `WEBHOOK_URL`: URL to send notifications to
 - `GDRIVE_FOLDER`: Google Drive folder for exports
 - `SMTP_*`, `EMAIL_FROM`, `EMAIL_TO`: (Optional) Email settings for notifications

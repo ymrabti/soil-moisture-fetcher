@@ -25,16 +25,10 @@ import os
 from datetime import datetime, timedelta, timezone
 import ee
 import pandas as pd
-from dotenv import load_dotenv
 from db import get_last_processed_date, set_last_processed
 from utils import get_description, zoi
 from webhook_notifier import send_webhook_notification
 from email_notifier import send_email_notification
-
-
-load_dotenv()
-CREDENTIALS_JSON = os.getenv("EARTHENGINE_CREDENTIALS")
-save_folder = os.getenv("GDRIVE_FOLDER", "GEE_Soil_Moisture")
 
 ee.Initialize()
 
@@ -125,7 +119,7 @@ def extract_data(img):
     task = ee.batch.Export.image.toDrive(
         image=img.clip(zoi),
         description=filename,
-        folder=save_folder,
+        folder="GEE_Soil_Moisture_Moulouya",
         fileNamePrefix=filename,
         scale=10000,
         region=zoi,

@@ -26,17 +26,12 @@ import time
 from datetime import datetime, timedelta, timezone
 import ee
 import pandas as pd
-from dotenv import load_dotenv
 
 # from db import get_last_processed_date
 from db import create_table_if_missing, get_last_processed_date, set_last_processed
 from utils import get_sentinel_description, zoi
 from webhook_notifier import send_webhook_notification
 from email_notifier import send_email_notification
-
-load_dotenv()
-CREDENTIALS_JSON = os.getenv("EARTHENGINE_CREDENTIALS")
-save_folder = os.getenv("GDRIVE_FOLDER", "GEE_Soil_Moisture")
 
 
 create_table_if_missing()
@@ -145,7 +140,7 @@ def extract_data(img):
     task = ee.batch.Export.image.toDrive(
         image=img.clip(zoi),
         description=f"soil_moisture_{date_str}",
-        folder=save_folder,
+        folder="GEE_Soil_Moisture_Moulouya",
         fileNamePrefix=filename,
         scale=10,
         region=zoi,
@@ -153,6 +148,11 @@ def extract_data(img):
         fileFormat="GeoTIFF",
     )
     task.start()
+    while task.active():
+        print('Task is running...')
+        time.sleep(10)
+
+    print(f'Task state: {task.status()["state"]}')
     print(f"🛰️ Export started for {date_str}")
 
     # 1. Extract soil moisture mean for your ZOI on this image

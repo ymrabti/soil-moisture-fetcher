@@ -24,8 +24,6 @@ services:
         restart: unless-stopped
         depends_on:
             - db
-        volumes:
-            - C:/Users/youmt/.config/earthengine:/root/.config/earthengine:ro
 
 volumes:
     db_data:

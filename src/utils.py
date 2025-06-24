@@ -17,10 +17,33 @@ Author: Younes MRABTI
 """
 
 from datetime import datetime, timezone
-
+import os
+import json
+from google.oauth2 import service_account
 import ee
 
-ee.Initialize()
+
+SERVICE_ACCOUNT_PATH = "/app/gee-service-account.json"
+# Vérifie d'abord que le fichier existe
+# Lecture + debug facultatif
+print(os.path.isfile(SERVICE_ACCOUNT_PATH))
+
+with open(SERVICE_ACCOUNT_PATH, "r", encoding="utf-8") as f:
+    data = json.load(f)
+    print("== Service Account Debug ==")
+    print(f"type: {data.get('type')}")
+    print(f"client_email: {data.get('client_email')}")
+    print(f"project_id: {data.get('project_id')}")
+    print(f"private_key_id: {data.get('private_key_id')[:8]}...")
+    print("===========================")
+
+# Créer des credentials Google Auth
+credentials = service_account.Credentials.from_service_account_file(
+    SERVICE_ACCOUNT_PATH, scopes=["https://www.googleapis.com/auth/earthengine"]
+)
+
+# Initialiser Earth Engine avec les credentials modernes
+ee.Initialize(credentials)
 
 # Zone of Interest
 zoi = ee.Geometry.Polygon(
@@ -45,6 +68,8 @@ zoi = ee.Geometry.Polygon(
 )
 area_m2 = zoi.area().getInfo()
 print(f"Area: {area_m2 / 1e6:.2f} km²")
+
+
 def get_description(vv_db):
     """
     Returns a textual description of soil moisture conditions based on the input VV dB value.
