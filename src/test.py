@@ -16,15 +16,16 @@ Logging:
 Dependencies:
 - os, time, pprint, logging, json, ee (Earth Engine Python API)
 """
+
 import os
 import time
 import pprint
 import logging
 from datetime import datetime, timedelta, timezone
-import json
+from google.oauth2 import service_account
 import ee
 
-
+# cls && .venv\Scripts\python.exe src/test.py
 today = datetime.now(timezone.utc).date()
 yesterday = today - timedelta(days=7)
 
@@ -38,38 +39,64 @@ FOLDER_NAME = "GEE_Soil_Moisture_Moulouya"
 
 logging.basicConfig(level=logging.INFO)
 
-with open(SERVICE_ACCOUNT_PATH, 'r', encoding='utf-8') as f:
-    credentials = ee.ServiceAccountCredentials(
-        json.load(f)["client_email"], SERVICE_ACCOUNT_PATH
+with open(SERVICE_ACCOUNT_PATH, "r", encoding="utf-8") as f:
+    credentials = service_account.Credentials.from_service_account_file(
+        SERVICE_ACCOUNT_PATH
+    ).with_scopes(
+        [
+            "https://www.googleapis.com/auth/earthengine",
+            "https://www.googleapis.com/auth/drive",
+        ]
     )
 
+print(credentials.scopes)
 ee.Initialize(credentials)
 logging.info("✅ Earth Engine initialisé.")
 
 # Petite région (polygon random)
-region = ee.Geometry.Rectangle([-5.2, 34.9, -5.1, 35.0])
+region = ee.Geometry.Polygon(
+    [
+        [
+            [-2.3481773965156094, 35.10994069768071],
+            [-2.3456620930114127, 35.1057921166766],
+            [-2.3395766814241767, 35.10280500753562],
+            [-2.331259952255124, 35.10466366608924],
+            [-2.327568135891795, 35.11004026111742],
+            [-2.326026498289366, 35.1151510164202],
+            [-2.3265944700380317, 35.120560103022925],
+            [-2.337020808557469, 35.12357974361997],
+            [-2.3424976789862626, 35.12304882591104],
+            [-2.3440393165879527, 35.11992961448671],
+            [-2.344485580152309, 35.11820404187584],
+            [-2.343674191940522, 35.115781541852286],
+            [-2.3447289966161122, 35.113292596948455],
+            [-2.3481773965156094, 35.10994069768071],
+        ]
+    ]
+)
 # Image de test
 image = (
     ee.ImageCollection("COPERNICUS/S1_GRD")
     .filterBounds(region)
     .filterDate(START_DATE, END_DATE)
     .filter(ee.Filter.eq("instrumentMode", "IW"))
-    .filter(ee.Filter.eq("orbitProperties_pass", "ASCENDING"))
     .filter(ee.Filter.listContains("transmitterReceiverPolarisation", "VV"))
     .select("VV")
+    .mosaic()
+    .clip(region)
 )
-
 
 task = ee.batch.Export.image.toDrive(
-    image=ee.Image(image.first()).clip(region),
-    description="test_export",
+    image=image,
+    description="Export GeoTIFF",
     folder=FOLDER_NAME,
-    fileNamePrefix="test_image",
+    fileNamePrefix=START_DATE,
     region=region,
-    scale=100,
+    scale=10,
+    maxPixels=1e9,
     fileFormat="GeoTIFF",
+    crs="EPSG:4326",
 )
-
 task.start()
 logging.info("📤 Tâche lancée.")
 

@@ -143,9 +143,9 @@ def extract_data(img):
         description=f"soil_moisture_{date_str}",
         folder="GEE_Soil_Moisture_Moulouya",
         fileNamePrefix=filename,
-        scale=10,
         region=zoi,
-        maxPixels=1e13,
+        scale=10,
+        maxPixels=1e9,
         fileFormat="GeoTIFF",
     )
     task.start()
@@ -256,13 +256,13 @@ def export_geotiff(updated_smap):
     task = ee.batch.Export.image.toDrive(
         image=vv_median,
         description=export_filename,
-        folder="GEE_Exports",
+        folder="GEE_Soil_Moisture_Moulouya",
         fileNamePrefix=export_filename,
         region=zoi,
         scale=10,
-        crs="EPSG:4326",
         maxPixels=1e9,
         fileFormat="GeoTIFF",
+        crs="EPSG:4326",
     )
     task.start()
 
