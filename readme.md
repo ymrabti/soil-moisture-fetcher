@@ -124,3 +124,22 @@ MIT License
 
 **Author:** Younes Mrabti  
 **Contact:** mr.younes@youmrabti.com
+```
+soil-moisture-fetcher
+├─ .pylintrc
+├─ DESCRIPTION.md
+├─ docker-compose.yml
+├─ License
+├─ readme.md
+└─ src
+   ├─ db.py
+   ├─ Dockerfile
+   ├─ email_notifier.py
+   ├─ main.py
+   ├─ main_sentinel.py
+   ├─ requirements.txt
+   ├─ test.py
+   ├─ utils.py
+   └─ webhook_notifier.py
+
+```

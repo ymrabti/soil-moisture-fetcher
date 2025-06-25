@@ -1,0 +1,19 @@
+{
+    "files.exclude": {
+        "**/.git": true,
+        "**/.svn": true,
+        "**/.hg": true,
+        "**/.DS_Store": true,
+        "**/__pycache__": true,
+        "**/.env": false,
+        "**/Thumbs.db": true
+    },
+    "ProjectTree.ignoreFolders": [
+        "node_modules",
+        ".git",
+        ".venv",
+        "exports",
+        "screens",
+        ".vscode"
+    ]
+}

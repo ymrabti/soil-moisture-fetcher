@@ -23,6 +23,7 @@ Author: Younes Mrabti
 
 import os
 import time
+import logging
 from datetime import datetime, timedelta, timezone
 import ee
 import pandas as pd
@@ -99,16 +100,16 @@ def main():
             .select("VV")
         )
 
-        print(f"🆕  {len(new_dates)} new dates to process.")
+        logging.info("🆕  %d new dates to process.", len(new_dates))
 
         if len(new_dates) == 1:
             ts = f"{new_dates[0].strftime("%Y-%m-%d %H_%M")}"
         else:
             ts = f"{new_dates[0].strftime("%Y-%m-%d %H_%M")} → {new_dates[-1].strftime("%Y-%m-%d %H_%M")}"
-        print("From:", ts)
+        logging.info("From: %s", ts)
         export_table(updated_smap, ts)
     else:
-        print("✅ No new dates to process.")
+        logging.info("✅ No new dates to process.")
 
 
 def extract_data(img):
@@ -149,11 +150,11 @@ def extract_data(img):
     )
     task.start()
     while task.active():
-        print('Task is running...')
+        logging.info("Task is running...")
         time.sleep(10)
 
-    print(f'Task state: {task.status()["state"]}')
-    print(f"🛰️ Export started for {date_str}")
+    logging.info("Task state: %s", task.status()["state"])
+    logging.info("🛰️ Export started for %s", date_str)
 
     # 1. Extract soil moisture mean for your ZOI on this image
     mean_dict = img.reduceRegion(
@@ -221,7 +222,7 @@ def export_table(smap_to_use, timestamps):
     os.makedirs(folder_path, exist_ok=True)
     combined_csv_path = f"exports/{timestamps}/soil_moisture.csv"
     df.to_csv(combined_csv_path, index=False)
-    print(f"💾 Combined CSV saved: {combined_csv_path}")
+    logging.info("💾 Combined CSV saved: %s", combined_csv_path)
 
     dataset = df.to_dict(orient="records")
     send_webhook_notification(dataset)
@@ -281,14 +282,14 @@ def run_export(updated_smap, timestamps):
     image_count = updated_smap.size().getInfo()
 
     if image_count == 0:
-        print("⚠️ No images found for the specified date range.")
+        logging.info("⚠️ No images found for the specified date range.")
     else:
         for i in range(image_count):
             try:
                 image = ee.Image(images.get(i))
                 extract_data(image)
             except ee.EEException as e:
-                print(f"❌ Failed to process image at index {i}: {e}")
+                logging.info("❌ Failed to process image at index %s: %s", i, e)
     bulk_notify_and_hook(timestamps)
 
 
@@ -313,14 +314,14 @@ def bulk_notify_and_hook(timestamps):
         os.makedirs("exports", exist_ok=True)
         combined_csv_path = f"exports/soil_moisture_{START_DATE}_{END_DATE}.csv"
         df.to_csv(combined_csv_path, index=False)
-        print(f"💾 Combined CSV saved: {combined_csv_path}")
+        logging.info("💾 Combined CSV saved: %s", combined_csv_path)
 
         # ✅ One-time notification
         send_webhook_notification(exported_data)
         send_email_notification(timestamps, combined_csv_path)
         set_last_processed(exported_data)
     else:
-        print("⚠️ No data to export or notify.")
+        logging.info("⚠️ No data to export or notify.")
 
 
 # Run the script every 7 days
@@ -332,6 +333,6 @@ if __name__ == "__main__":
         try:
             main()
         except (ee.EEException, OSError, ValueError) as e:
-            print(f"❌ Error occurred: {e}")
-        print(f"⏳ Sleeping for {INTERVAL_DAYS} days...\n")
+            logging.info("❌ Error occurred: %s", e)
+        logging.info("⏳ Sleeping for %d days...\n", INTERVAL_DAYS)
         time.sleep(INTERVAL_SECONDS)
